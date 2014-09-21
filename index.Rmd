@@ -1,0 +1,138 @@
+---
+title: "Human Activity Recognition"
+author: "Joao Antonio"
+output: html_document
+---
+
+### Executive Summary
+
+This report describes how I built a model to predict in which way people did
+their exercises, based on data collected using devices such as *Jawbone Up*, 
+*Nike FuelBand*, and *Fitbit*.
+
+The datasets used for this work were generously provided by the Groupware\@LES
+research group. For further information, please visit their site: 
+[http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har).
+
+This work was done as course project for the Practical Machine Learning course
+in the Coursera / Johns Hopkins Data Science Specialization.
+
+### R Session startup
+
+For this assignment I used the libraries `caret` for dataset sampling, 
+`randomForest` for model training and `doParallel` for parallel processing,
+which is very useful for quicker model training.
+
+```{r, message=FALSE}
+library(caret)
+library(randomForest)
+library(doParallel)
+registerDoParallel(cores=detectCores(all.tests=TRUE))
+set.seed(1)
+```
+
+### Dataset loading
+
+The training and testings datasets used in this project were downloaded from the 
+following links: 
+[training](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv), 
+[testing](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv).
+
+The training dataset is composed by 160 columns, distributed the following way:
+
+* Metadata columns
+  + X (observation id)
+  + user_name
+  + raw_timestamp_part_1
+  + raw_timestamp_part_2
+  + cvtd_timestamp
+  + new_window
+  + num_window
+* Measurements (columns 8 till 159)
+* Classe (column 160)
+
+After reading the dataset, the metadata columns were dropped, leaving only
+the measures and the Classe columns. 
+
+Values ´#DIV/0!´ were found on some of the measure columns, suggesting that they
+might actually be result of some kind of data processing. Those values were 
+replaced with ´NA´ while reading the dataset, assuring that all the measure 
+columns were read as numeric.
+
+```{r, message=FALSE}
+dataset <- read.csv("pml-training.csv", stringsAsFactors=FALSE, na.strings=c("NA", "#DIV/0!"))
+dataset$classe <- as.factor(dataset$classe)
+dataset <- dataset[,8:160]
+```
+
+### Training/Testing dataset sampling
+
+Due to hardware (and to be honest, also time) limitations, the strategy I used
+for sampling the dataset into a training and a testing dataset was 40% of 
+instances for training and 60% of instances for testing, as opposed to the more
+classic 60% for testing and 40% for training.
+
+```{r, cache=TRUE}
+inTrain <- createDataPartition(y=dataset$classe, p=0.4, list=FALSE)
+training <- dataset[inTrain,]
+testing <- dataset[-inTrain,]
+```
+
+### Dataset Pre-processing
+
+In order to remove measurements without any value for the classe prediction, I
+did a manual analysis of the correlation of the columns, inspired by the
+correlation analysis in the Basic Preprocessing lecture.
+
+I decided to keep columns with correlation greater than 0.75 and as result of 
+that, from the 152 measurement columns present in the dataset, only 34 were used.
+
+```{r, cache=TRUE}
+M <- abs(cor(training[,-153]))
+diag(M) <- 0
+columns <- unique(rownames(which(M > 0.75, arr.ind=T)))
+training <- training[,c(columns,"classe")]
+```
+
+### Model Training
+
+The algorithm of my choice was Random Forests and since I already made some 
+pre-processing manually, I decided to train the model using the functions in the
+`randomForest` package directly.
+
+```{r, cache=TRUE}
+model <- randomForest(classe ~ ., data=training, importance=TRUE, proximity=TRUE, ntree = 500)
+```
+
+### In and Out Of Sample Error
+
+With that model, the In Sample Accuracy was a scary 100% and it would probably 
+mean the model was overfit to the training sample. Fortunately the Out of Sample
+accuracy, using the testing sample, was 97.5%, giving me confidence to use this
+model for the project submission.
+
+Also, it must be taken into consideration that with inverted sampling sizes that
+I used, the Out of Sample Error would be greater if the model was overfitted,
+because the testing sample is much bigger than the testing sample. Hence, I 
+didn't feel the need to go for further cross-validation.
+
+Confusion Matrix for In Sample (training sample):
+```{r, cache=TRUE}
+trainingPredict <- predict(model, training)
+confusionMatrix(trainingPredict, training$classe)
+```
+
+Confusion Matrix for Out of Sample (testing sample):
+```{r, cache=TRUE}
+testingPredict <- predict(model, testing)
+confusionMatrix(testingPredict, testing$classe)
+```
+
+### Project Submission
+
+And for the project submission.
+
+```{r}
+assignment <- read.csv("pml-testing.csv", stringsAsFactors=FALSE, na.strings=c("NA", "#DIV/0!"))
+predict(model, assignment)
+```
